@@ -1,0 +1,21 @@
+{
+  "name": "raytrace-texture",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "react": "^15.4.2",
+    "react-dom": "^15.4.2",
+    "regl": "^1.3.0"
+  },
+  "devDependencies": {
+    "glslify": "^6.0.1",
+    "reactify": "^1.1.1"
+  }
+}
