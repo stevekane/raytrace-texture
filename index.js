@@ -1,12 +1,15 @@
-const regl = require('regl')({ extensions: [ 'OES_texture_float' ] })
+const mat4 = require('gl-mat4')
+const vec3 = require('gl-vec3')
+const quat = require('gl-quat')
+const regl = require('regl')({ 
+  extensions: [ 'OES_texture_float' ] 
+})
+const gl = regl._gl
 const React = require('react')
 const DOM = require('react-dom')
 const UI_EL = document.createElement('div')
 const BIG_TRIANGLE = regl.buffer([ [ -4, -4 ],  [ 0, 4 ], [ 4, -4 ] ])
-const { pow } = Math
-const compose = (f1, f2) => x => f1(f2(x))
-const log = console.log.bind(console)
-const targetValue = e => e.target.value
+const { min, max, abs, pow, sin, cos, PI } = Math
 
 const evaluate = regl({
   vert: `
@@ -30,9 +33,7 @@ const evaluate = regl({
     }
 
     float sdf_scene ( vec2 p ) {
-      return sdf_union(
-        sdf_circle(p, .3),
-        sdf_circle(p - vec2(.2), .2));
+      return sdf_circle(p, .3);
     }
 
     void main () {
@@ -40,7 +41,7 @@ const evaluate = regl({
       float d = sdf_scene(p);
       float v = abs(d < 0. ? 1. : 0.);
 
-      gl_FragColor = vec4(v, 0, 0, v);
+      gl_FragColor = vec4(0, 0, 0, v);
     }
   `,
   attributes: {
@@ -66,12 +67,24 @@ const render = regl({
 
     uniform sampler2D model;
     uniform vec2 viewport; 
-    uniform vec2 position;
+    uniform vec4 color;
+    uniform mat4 model_matrix;
+    uniform mat4 view_matrix;
+    uniform mat4 projection_matrix;
+
+    vec2 map ( float f1, float f2, float t1, float t2, vec2 v ) {
+      return t1 + v / ( f2 - f1 ) * ( t2 - t1 ); 
+    }
 
     void main () {
-      vec2 coord = gl_FragCoord.xy / viewport - position;
+      vec2 fc = map(0., 1., -1., 1., gl_FragCoord.xy / viewport);
+      fc.y = -fc.y; // flip y-axis: textures read the same as screen coords
+      vec4 frag_coord = vec4(fc, 0, 1);
+      vec4 cam_coord = model_matrix * view_matrix * projection_matrix * frag_coord;
+      vec4 cell = texture2D(model, cam_coord.xy + .5);
 
-      gl_FragColor = texture2D(model, coord);
+      gl_FragColor = color;
+      gl_FragColor.a *= cell.a;
     } 
   `,
   attributes: {
@@ -80,7 +93,10 @@ const render = regl({
   uniforms: {
     viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
     model: regl.prop('model'),
-    position: regl.prop('position')
+    color: regl.prop('entity.color'),
+    model_matrix: regl.prop('entity.matrix'),
+    view_matrix: regl.prop('camera.viewMatrix'),
+    projection_matrix: regl.prop('camera.projectionMatrix')
   },
   count: 3,
   blend: {
@@ -92,6 +108,9 @@ const render = regl({
       dstAlpha: 1
     },
     color: [ 0, 0, 0, 0 ]
+  },
+  depth: {
+    enable: false 
   }
 })
 
@@ -101,7 +120,7 @@ class UI extends React.Component {
     const props = {
       value: settings.gridSize,
       type: 'range',
-      min: 1,
+      min: 4,
       max: 10,
       step: 1,
       onChange: updateGridSize
@@ -118,10 +137,7 @@ class UI extends React.Component {
               <input { ...props }/>
             </td> 
             <td>
-              2
-              <sup>
-                { settings.gridSize }
-              </sup>
+              2<sup>{ settings.gridSize }</sup>(= { Math.pow(2, settings.gridSize)})
             </td>
           </tr>
         </tbody>
@@ -129,16 +145,6 @@ class UI extends React.Component {
     )
   }
 }
-
-const settings = {
-  gridSize: 8
-}
-
-const framebuffer = regl.framebuffer({
-  width: settings.gridSize,
-  height: settings.gridSize,
-  colorType: 'float'
-})
 
 function updateGridSize ( e ) {
   const val = e.target.value
@@ -148,21 +154,70 @@ function updateGridSize ( e ) {
   framebuffer({ width, height })
 }
 
+function Entity ( x, y, color ) {
+  this.position = vec3.fromValues(x, y, 0)
+  this.rotation = quat.create()
+  this.matrix = mat4.create()
+  this.color = color
+}
+
+function Camera (x, y) {
+  this.position = vec3.fromValues(x, y, 0)
+  this.rotation = quat.create()
+  this.viewMatrix = mat4.create()
+  this.projectionMatrix = mat4.create()
+}
+
+const TOTAL_ENTITIES = 4
+const entities = []
+const camera = new Camera(0, 0)
+
+for ( var i = 0, a = 2 * PI / TOTAL_ENTITIES, x, y; i < TOTAL_ENTITIES; i++ ) {
+  x = cos(i * a) * .4
+  y = sin(i * a) * .4
+  entities.push(new Entity(x, y, [ 1, 0, 0, .25 ]))
+}
+const settings = {
+  gridSize: 8
+}
+
+const framebuffer = regl.framebuffer({
+  width: pow(2, settings.gridSize),
+  height: pow(2, settings.gridSize),
+  colorType: 'float'
+})
+
 document.body.appendChild(UI_EL)
+document.body.addEventListener('keydown', function ({ keyCode }) {
+  switch ( keyCode ) {
+    case 87: camera.position[1] += .1; break
+    case 65: camera.position[0] += .1; break
+    case 83: camera.position[1] -= .1; break
+    case 68: camera.position[0] -= .1; break
+  }
+})
 UI_EL.style.position = 'fixed'
 UI_EL.style.backgroundColor = 'none'
 
-regl.frame(({ tick }) => {
+regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   const rate = tick / 100
+  const aperatureSize = max(abs(sin(rate) * 4), 1)
+  const w = aperatureSize
+  const h = viewportHeight / viewportWidth * aperatureSize
 
   regl.clear({
     depth: true,
     color: [ 0, 0, 0, 0]
   })
   evaluate({ framebuffer })
-  render([ 
-    { model: framebuffer, position: [ Math.sin(rate), 0 ] },
-    { model: framebuffer, position: [ 0, Math.sin(rate) ] },
-  ])
-  DOM.render(<UI settings={ settings }/>, UI_EL)
+  mat4.fromRotationTranslation(camera.viewMatrix, camera.rotation, camera.position)
+  mat4.invert(camera.viewMatrix, camera.viewMatrix)
+  mat4.ortho(camera.projectionMatrix, -w, w, -h, h, 0, 1) 
+  mat4.invert(camera.projectionMatrix, camera.projectionMatrix)
+  for ( var i = 0, entity; i < entities.length; i++ ) {
+    entity = entities[i] 
+    mat4.fromRotationTranslation(entity.matrix, entity.rotation, entity.position)
+    render({ model: framebuffer, entity, camera }) 
+  }
+  DOM.render(<UI settings={ settings } />, UI_EL)
 })
