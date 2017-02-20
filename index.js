@@ -211,10 +211,10 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   mat4.fromRotationTranslation(camera.viewMatrix, camera.rotation, camera.position)
   mat4.invert(camera.viewMatrix, camera.viewMatrix)
   mat4.ortho(camera.projectionMatrix, -w, w, -h, h, 0, 1) 
-  // entities[0].position[0] = sin(rate)
-  // entities[2].position[0] = -sin(rate)
-  // entities[1].position[1] = sin(rate)
-  // entities[3].position[1] = -sin(rate)
+  entities[0].position[0] = sin(tick / 20) 
+  entities[2].position[0] = -sin(tick / 30)
+  entities[1].position[1] = sin(tick / 40)
+  entities[3].position[1] = -sin(tick / 50)
   for ( var i = 0, entity; i < entities.length; i++ ) {
     entity = entities[i] 
     mat4.fromRotationTranslation(entity.matrix, entity.rotation, entity.position)
