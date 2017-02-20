@@ -187,6 +187,8 @@ const framebuffer = regl.framebuffer({
   colorType: 'float'
 })
 
+UI_EL.style.position = 'fixed'
+UI_EL.style.backgroundColor = 'none'
 document.body.appendChild(UI_EL)
 document.body.addEventListener('keydown', function ({ keyCode }) {
   switch ( keyCode ) {
@@ -196,8 +198,6 @@ document.body.addEventListener('keydown', function ({ keyCode }) {
     case 68: camera.position[0] -= .1; break
   }
 })
-UI_EL.style.position = 'fixed'
-UI_EL.style.backgroundColor = 'none'
 
 regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   const rate = tick / 100
@@ -216,6 +216,7 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   mat4.invert(camera.projectionMatrix, camera.projectionMatrix)
   for ( var i = 0, entity; i < entities.length; i++ ) {
     entity = entities[i] 
+    quat.rotateZ(entity.rotation, entity.rotation, sin(rate / 100))
     mat4.fromRotationTranslation(entity.matrix, entity.rotation, entity.position)
     render({ model: framebuffer, entity, camera }) 
   }
