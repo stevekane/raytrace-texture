@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "glslify": "^6.0.1",
-    "reactify": "^1.1.1"
+    "reactify": "^1.1.1",
+    "start": "^5.1.0"
   }
 }

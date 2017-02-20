@@ -58,8 +58,15 @@ const render = regl({
   vert: `
     attribute vec2 pos;
 
+    uniform mat4 model_matrix;
+    uniform mat4 view_matrix;
+    uniform mat4 projection_matrix;
+
+    varying vec2 coord;
+
     void main () {
-      gl_Position = vec4(pos, 0, 1); 
+      coord = pos;
+      gl_Position = projection_matrix * view_matrix * model_matrix * vec4(pos, 0, 1);
     } 
   `,
   frag: `
@@ -68,20 +75,11 @@ const render = regl({
     uniform sampler2D model;
     uniform vec2 viewport; 
     uniform vec4 color;
-    uniform mat4 model_matrix;
-    uniform mat4 view_matrix;
-    uniform mat4 projection_matrix;
 
-    vec2 map ( float f1, float f2, float t1, float t2, vec2 v ) {
-      return t1 + v / ( f2 - f1 ) * ( t2 - t1 ); 
-    }
+    varying vec2 coord;
 
     void main () {
-      vec2 fc = map(0., 1., -1., 1., gl_FragCoord.xy / viewport);
-      fc.y = -fc.y; // flip y-axis: textures read the same as screen coords
-      vec4 frag_coord = vec4(fc, 0, 1);
-      vec4 cam_coord = model_matrix * view_matrix * projection_matrix * frag_coord;
-      vec4 cell = texture2D(model, cam_coord.xy + .5);
+      vec4 cell = texture2D(model, coord);
 
       gl_FragColor = color;
       gl_FragColor.a *= cell.a;
@@ -193,9 +191,9 @@ document.body.appendChild(UI_EL)
 document.body.addEventListener('keydown', function ({ keyCode }) {
   switch ( keyCode ) {
     case 87: camera.position[1] += .1; break
-    case 65: camera.position[0] += .1; break
+    case 65: camera.position[0] -= .1; break
     case 83: camera.position[1] -= .1; break
-    case 68: camera.position[0] -= .1; break
+    case 68: camera.position[0] += .1; break
   }
 })
 
@@ -213,10 +211,12 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   mat4.fromRotationTranslation(camera.viewMatrix, camera.rotation, camera.position)
   mat4.invert(camera.viewMatrix, camera.viewMatrix)
   mat4.ortho(camera.projectionMatrix, -w, w, -h, h, 0, 1) 
-  mat4.invert(camera.projectionMatrix, camera.projectionMatrix)
+  // entities[0].position[0] = sin(rate)
+  // entities[2].position[0] = -sin(rate)
+  // entities[1].position[1] = sin(rate)
+  // entities[3].position[1] = -sin(rate)
   for ( var i = 0, entity; i < entities.length; i++ ) {
     entity = entities[i] 
-    quat.rotateZ(entity.rotation, entity.rotation, sin(rate / 100))
     mat4.fromRotationTranslation(entity.matrix, entity.rotation, entity.position)
     render({ model: framebuffer, entity, camera }) 
   }
