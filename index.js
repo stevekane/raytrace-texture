@@ -37,7 +37,7 @@ const evaluate = regl({
     }
 
     void main () {
-      vec2 p = gl_FragCoord.xy / viewport - .5;
+      vec2 p = 2. * gl_FragCoord.xy / viewport - 1.;
       float d = sdf_scene(p);
       float v = abs(d < 0. ? 1. : 0.);
 
@@ -66,7 +66,7 @@ const render = regl({
 
     void main () {
       coord = pos;
-      gl_Position = projection_matrix * view_matrix * model_matrix * vec4(pos, 0, 1);
+      gl_Position = projection_matrix * view_matrix * model_matrix * vec4(pos - .5, 0, 1);
     } 
   `,
   frag: `
@@ -176,7 +176,8 @@ for ( var i = 0, a = 2 * PI / TOTAL_ENTITIES, x, y; i < TOTAL_ENTITIES; i++ ) {
   entities.push(new Entity(x, y, [ 1, 0, 0, .25 ]))
 }
 const settings = {
-  gridSize: 8
+  gridSize: 6,
+  spin: false
 }
 
 const framebuffer = regl.framebuffer({
@@ -194,6 +195,7 @@ document.body.addEventListener('keydown', function ({ keyCode }) {
     case 65: camera.position[0] -= .1; break
     case 83: camera.position[1] -= .1; break
     case 68: camera.position[0] += .1; break
+    case 32: settings.spin = !settings.spin; break
   }
 })
 
@@ -201,7 +203,7 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   const rate = tick / 100
   const aperatureSize = max(abs(sin(rate) * 4), 1)
   const w = aperatureSize
-  const h = viewportHeight / viewportWidth * aperatureSize
+  const h = viewportHeight / viewportWidth * w
 
   regl.clear({
     depth: true,
@@ -217,6 +219,9 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   entities[3].position[1] = -sin(tick / 50)
   for ( var i = 0, entity; i < entities.length; i++ ) {
     entity = entities[i] 
+    if ( settings.spin ) {
+      quat.rotateZ(entity.rotation, entity.rotation, 0.01)
+    }
     mat4.fromRotationTranslation(entity.matrix, entity.rotation, entity.position)
     render({ model: framebuffer, entity, camera }) 
   }
