@@ -41,7 +41,7 @@ const evaluate = regl({
       float d = sdf_scene(p);
       float v = abs(d < 0. ? 1. : 0.);
 
-      gl_FragColor = vec4(0, 0, 0, v);
+      gl_FragColor = vec4(0, 0, d, v);
     }
   `,
   attributes: {
@@ -75,13 +75,18 @@ const render = regl({
     uniform sampler2D model;
     uniform vec2 viewport; 
     uniform vec4 color;
+    uniform float border_size;
 
     varying vec2 coord;
+
+    const vec3 BORDER_COLOR = vec3(0);
 
     void main () {
       vec4 cell = texture2D(model, coord);
 
-      gl_FragColor = color;
+      gl_FragColor = abs(cell.b) <= border_size
+        ? vec4(BORDER_COLOR, 1)
+        : color;
       gl_FragColor.a *= cell.a;
     } 
   `,
@@ -92,6 +97,7 @@ const render = regl({
     viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
     model: regl.prop('model'),
     color: regl.prop('entity.color'),
+    border_size: regl.prop('borderSize'),
     model_matrix: regl.prop('entity.matrix'),
     view_matrix: regl.prop('camera.viewMatrix'),
     projection_matrix: regl.prop('camera.projectionMatrix')
@@ -112,10 +118,25 @@ const render = regl({
   }
 })
 
+class TableInput extends React.Component {
+  render() {
+    const { before, sliderProps, after } = this.props
+    const input = React.DOM.input(sliderProps)
+
+    return (
+      <tr>
+        <td>{ before }</td> 
+        <td>{ input }</td>
+        <td>{ after }</td>
+      </tr> 
+    ) 
+  }
+}
+
 class UI extends React.Component {
   render() {
     const { settings } = this.props
-    const props = {
+    const gridProps = {
       value: settings.gridSize,
       type: 'range',
       min: 4,
@@ -123,21 +144,20 @@ class UI extends React.Component {
       step: 1,
       onChange: updateGridSize
     }
+    const borderProps = {
+      value: settings.borderSize,
+      type: 'range',
+      min: 0.0,
+      max: 0.1,
+      step: 0.01,
+      onChange: (e) => settings.borderSize = Number(e.target.value)
+    }
 
     return (
       <table>
         <tbody>
-          <tr>
-            <td>
-              Grid Power
-            </td> 
-            <td>
-              <input { ...props }/>
-            </td> 
-            <td>
-              2<sup>{ settings.gridSize }</sup>(= { Math.pow(2, settings.gridSize)})
-            </td>
-          </tr>
+          <TableInput sliderProps={ gridProps } before="Grid Power" after={ Math.pow(2, settings.gridSize) } />
+          <TableInput sliderProps={ borderProps } before="Border Size" after={ settings.borderSize } />
         </tbody>
       </table>
     )
@@ -147,9 +167,10 @@ class UI extends React.Component {
 function updateGridSize ( e ) {
   const val = e.target.value
   const width = height = pow(2, val)
+  const colorType = 'float'
 
   settings.gridSize = val
-  framebuffer({ width, height })
+  framebuffer({ width, height, colorType })
 }
 
 function Entity ( x, y, color ) {
@@ -176,8 +197,8 @@ for ( var i = 0, a = 2 * PI / TOTAL_ENTITIES, x, y; i < TOTAL_ENTITIES; i++ ) {
   entities.push(new Entity(x, y, [ 1, 0, 0, .25 ]))
 }
 const settings = {
-  gridSize: 6,
-  spin: false
+  gridSize: 8,
+  borderSize: 0.1
 }
 
 const framebuffer = regl.framebuffer({
@@ -195,7 +216,6 @@ document.body.addEventListener('keydown', function ({ keyCode }) {
     case 65: camera.position[0] -= .1; break
     case 83: camera.position[1] -= .1; break
     case 68: camera.position[0] += .1; break
-    case 32: settings.spin = !settings.spin; break
   }
 })
 
@@ -209,7 +229,6 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
     depth: true,
     color: [ 0, 0, 0, 0]
   })
-  evaluate({ framebuffer })
   mat4.fromRotationTranslation(camera.viewMatrix, camera.rotation, camera.position)
   mat4.invert(camera.viewMatrix, camera.viewMatrix)
   mat4.ortho(camera.projectionMatrix, -w, w, -h, h, 0, 1) 
@@ -217,13 +236,19 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
   entities[2].position[0] = -sin(tick / 30)
   entities[1].position[1] = sin(tick / 40)
   entities[3].position[1] = -sin(tick / 50)
+  evaluate({ framebuffer })
   for ( var i = 0, entity; i < entities.length; i++ ) {
     entity = entities[i] 
     if ( settings.spin ) {
       quat.rotateZ(entity.rotation, entity.rotation, 0.01)
     }
     mat4.fromRotationTranslation(entity.matrix, entity.rotation, entity.position)
-    render({ model: framebuffer, entity, camera }) 
+    render({ 
+      borderSize: settings.borderSize,
+      model: framebuffer, 
+      entity, 
+      camera 
+    }) 
   }
   DOM.render(<UI settings={ settings } />, UI_EL)
 })
