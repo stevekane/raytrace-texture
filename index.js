@@ -9,15 +9,17 @@ const React = require('react')
 const DOM = require('react-dom')
 const UI_EL = document.createElement('div')
 const BIG_TRIANGLE = regl.buffer([ 
-  [ -4, -4 ],
-  [ 0, 4 ],
-  [ 4, -4 ] 
+  -4, -4,
+  0, 4,
+  4, -4 
 ])
 const FULL_SCREEN_QUAD = regl.buffer([
-  1.0,  1.0,
-  -1.0,  1.0,
-  1.0, -1.0,
-  -1.0, -1.0
+  1,  1,
+  -1, 1,
+  1, -1,
+  -1, 1,
+  -1, -1,
+  1, -1
 ])
 const { min, max, abs, pow, sin, cos, PI } = Math
 
@@ -43,7 +45,9 @@ const evaluate = regl({
     }
 
     float sdf_scene ( vec2 p ) {
-      return sdf_circle(p, .3);
+      return sdf_union(
+        sdf_circle(p, .3),
+        sdf_circle(p - .2, .3));
     }
 
     void main () {
@@ -88,14 +92,27 @@ const render = regl({
 
     const vec4 BORDER_COLOR = vec4(0, 0, 0, 1);
 
+    float scene_smooth (vec2 p, float r) {
+      float accum = texture2D(model, p).a;
+
+      accum += texture2D(model, p + vec2(0.0, r)).a;
+      accum += texture2D(model, p + vec2(0.0, -r)).a;
+      accum += texture2D(model, p + vec2(r, 0.0)).a;
+      accum += texture2D(model, p + vec2(-r, 0.0)).a;
+      return accum / 5.0;
+    }
+
     void main () {
-      vec4 cell = texture2D(model, coord);
-      float d = cell.a;
+      float d = texture2D(model, coord).a;
       float v = step(0., -d);
-      vec4 c = mix(color, BORDER_COLOR, step(-border_size, d));
+      vec4 c = vec4(.5, .5, .5, 1.);
+
+      c = mix(color, c, step(0., d));
+      c = mix(c, BORDER_COLOR, step(-border_size, d));
+      c.a *= v;
+      clamp(c, 0., 1.);
 
       gl_FragColor = c;
-      gl_FragColor.a *= v;
     } 
   `,
   attributes: {
@@ -108,7 +125,7 @@ const render = regl({
     border_size: regl.prop('borderSize'),
     mvp_matrix: regl.prop('entity.matrix')
   },
-  count: 4,
+  count: 6,
   blend: {
     enable: true,
     func: {
@@ -143,12 +160,12 @@ class UI extends React.Component {
   render() {
     const { settings } = this.props
     const gridProps = {
-      value: settings.gridSize,
+      value: settings.gridPower,
       type: 'range',
       min: 4,
       max: 10,
       step: 1,
-      onChange: updateGridSize
+      onChange: updateGridPower
     }
     const borderProps = {
       value: settings.borderSize,
@@ -158,29 +175,42 @@ class UI extends React.Component {
       step: 0.01,
       onChange: updateBorderSize
     }
+    const countProps = {
+      value: settings.count,
+      type: 'range',
+      min: 0,
+      max: TOTAL_ENTITIES,
+      step: 1,
+      onChange: updateCount
+    }
 
     return (
       <table>
         <tbody>
-          <TableInput sliderProps={ gridProps } before="Grid Power" after={ Math.pow(2, settings.gridSize) } />
+          <TableInput sliderProps={ gridProps } before="Grid Power" after={ Math.pow(2, settings.gridPower) } />
           <TableInput sliderProps={ borderProps } before="Border Size" after={ settings.borderSize } />
+          <TableInput sliderProps={ countProps } before="Count" after={ settings.count } />
         </tbody>
       </table>
     )
   }
 }
 
-function updateGridSize ( e ) {
+function updateGridPower ( e ) {
   const val = e.target.value
   const width = height = pow(2, val)
   const colorType = 'float'
 
-  settings.gridSize = val
+  settings.gridPower = val
   framebuffer({ width, height, colorType })
 }
 
 function updateBorderSize ( e ) {
   settings.borderSize = Number(e.target.value)
+}
+
+function updateCount ( e ) {
+  settings.count = Number(e.target.value)
 }
 
 function Entity ( x, y, color ) {
@@ -198,24 +228,23 @@ function Camera (x, y) {
   this.matrix = mat4.create()
 }
 
-const TOTAL_ENTITIES = 4
+const TOTAL_ENTITIES = 32
 const entities = []
 const camera = new Camera(0, 0)
 
 for ( var i = 0, a = 2 * PI / TOTAL_ENTITIES, x, y; i < TOTAL_ENTITIES; i++ ) {
-  x = cos(i * a) * .4
-  y = sin(i * a) * .4
-  entities.push(new Entity(x, y, [ i % 1, i % 2, i % 3, .25 ]))
+  entities.push(new Entity(0, 0, [ i % 1, i % 2, i % 3, .25 ]))
 }
 
 const settings = {
-  gridSize: 10,
-  borderSize: 0.02
+  gridPower: 10,
+  borderSize: 0.02,
+  count: 16
 }
 
 const framebuffer = regl.framebuffer({
-  width: pow(2, settings.gridSize),
-  height: pow(2, settings.gridSize),
+  width: pow(2, settings.gridPower),
+  height: pow(2, settings.gridPower),
   colorType: 'float'
 })
 
@@ -244,11 +273,6 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
     color: [ 0, 0, 0, 0]
   })
 
-  entities[0].position[0] = sin(tick / 20) 
-  entities[2].position[0] = -sin(tick / 30)
-  entities[1].position[1] = sin(tick / 40)
-  entities[3].position[1] = -sin(tick / 50)
-
   mat4.fromRotationTranslation(camera.viewMatrix, camera.rotation, camera.position)
   mat4.invert(camera.viewMatrix, camera.viewMatrix)
   mat4.ortho(camera.projectionMatrix, -w, w, -h, h, 0, 1) 
@@ -256,8 +280,14 @@ regl.frame(({ tick, viewportWidth, viewportHeight }) => {
 
   evaluate({ framebuffer })
   
-  for ( var i = 0, entity; i < entities.length; i++ ) {
+  for ( var i = 0, entity; i < settings.count; i++ ) {
     entity = entities[i] 
+    entity.position[i % 3] = sin(tick / i) 
+    entity.position[i % 2] = -sin(tick / i)
+    entity.position[i % 2] = sin(tick / i)
+    entity.position[1 % 3] = -sin(tick / i)
+
+    quat.rotateZ(entity.rotation, entity.rotation, sin(tick / 100))
     mat4.fromRotationTranslation(entity.matrix, entity.rotation, entity.position)
     mat4.multiply(entity.matrix, camera.matrix, entity.matrix)
     render({ borderSize, model, entity, camera })
