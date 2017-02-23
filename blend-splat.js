@@ -1,5 +1,6 @@
 const regl = require('regl')({ extensions: [ 'OES_texture_float' ] })
-const { pow, abs, sin, cos } = Math
+const mat4 = require('gl-mat4')
+const { pow, abs, sin, cos, random } = Math
 const rand = _ => (Math.random() > 0.5 ? 1 : -1) * Math.random()
 
 const BIG_TRIANGLE = regl.buffer([ 
@@ -17,7 +18,7 @@ const FULL_SCREEN_QUAD = regl.buffer([
   1, -1, 0, 1
 ])
 
-const side = 10
+const side = 8
 const framebuffers = [ null, null ].map(function () {
   return regl.framebuffer({
     width: pow(2, side),
@@ -30,8 +31,10 @@ const sdfSphere = regl({
   vert: `
     attribute vec4 pos;
 
+    uniform mat4 transform_matrix;
+
     void main () {
-      gl_Position = pos;
+      gl_Position = transform_matrix * pos;
     } 
   `,
   frag: `
@@ -70,14 +73,15 @@ const sdfSphere = regl({
     viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
     from: regl.prop('from'),
     radius: regl.prop('radius'),
-    center: regl.prop('center')
+    center: regl.prop('center'),
+    transform_matrix: regl.prop('transformMatrix')
   },
   framebuffer: regl.prop('to'),
   depth: {
     enable: false 
   },
   blend: {
-    enable: false 
+    enable: false
   }
 })
 
@@ -100,7 +104,7 @@ const render = regl({
       vec4 c = vec4(0, 0, 0, 1);
       vec4 color = vec4(1, 0, 0, 1);
       float d = texture2D(from, p).a;
-      float d_out = abs(pow(d, .1));
+      float d_out = pow(clamp(d, 0., 1.), .1);
 
       c = mix(color, c, d_out);
 
@@ -118,31 +122,55 @@ const render = regl({
 })
 
 const objects = []
+const COUNT = 10
 
-for ( var i = -1; i <= 1; i++ ) {
-  objects.push({ center: [ i * .6, 0 ], radius: 0.3 })
+for ( var i = -COUNT; i <= COUNT; i++ ) {
+  objects.push({ center: [ sin(i), cos(i) ], radius: .05 })
 }
 
-// objects.push({ center: [ 0.4, 0 ], radius: 0.3 })
+const evalProps = {
+  from: null,
+  to: null,
+  center: [ 0, 0 ],
+  radius: 0,
+  transformMatrix: mat4.create()
+}
+const renderProps = {
+  from: null
+}
+const clearProps = {
+  color: [ 0, 0, 0, 1000 ],
+  framebuffer: null
+}
 
 function update ({ tick, time }) {
-  var center = [ 0, 0 ]
+  var matrix = evalProps.transformMatrix
+  var center = evalProps.center
   var to = framebuffers[0]
   var from = framebuffers[1]
   var tmp
-  var radius = 0.5
 
   for ( var i = 0, object; i < objects.length; i++) {
     tmp = to
     to = from
     from = tmp
     object = objects[i]
-    center[i % 2] = object.center[i % 2] + sin(time * 2) * .5
-    sdfSphere({ from, to, center, radius: object.radius })
+    evalProps.from = from
+    evalProps.to = to
+    center[0] = object.center[0]
+    center[1] = object.center[1] + sin(time * i / 100) * -object.center[1]
+    evalProps.radius = object.radius
+    mat4.identity(matrix)
+    mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
+    mat4.scale(matrix, matrix, [ object.radius * 1.2, object.radius * 1.2, 1 ])  
+    sdfSphere(evalProps)
   }
-  render({ from: to })
-  regl.clear({ color: [ 0, 0, 0, 10000 ], framebuffer: to })
-  regl.clear({ color: [ 0, 0, 0, 10000 ], framebuffer: from })
+  renderProps.from = to
+  render(renderProps)
+  clearProps.framebuffer = to
+  regl.clear(clearProps)
+  clearProps.framebuffer = from
+  regl.clear(clearProps)
 }
 
 regl.frame(update)
