@@ -19,13 +19,21 @@ const FULL_SCREEN_QUAD = regl.buffer([
 ])
 
 const side = 10
-const framebuffers = [ null, null ].map(function () {
-  return regl.framebuffer({
+const TARGET_COUNT = 32
+const accumulator = regl.framebuffer({
+  width: pow(2, side),
+  height: pow(2, side),
+  colorType: 'float'
+})
+const targets = []
+
+for ( var i = 0; i < TARGET_COUNT; i++ ) {
+  targets.push(regl.framebuffer({
     width: pow(2, side),
     height: pow(2, side),
     colorType: 'float'
-  })
-})
+  }))
+}
 
 const sdfSphere = regl({
   vert: `
@@ -76,13 +84,53 @@ const sdfSphere = regl({
     center: regl.prop('center'),
     transform_matrix: regl.prop('transformMatrix')
   },
-  framebuffer: regl.prop('to'),
   depth: {
     enable: false 
   },
   blend: {
     enable: false
-  }
+  },
+  framebuffer: regl.prop('to')
+})
+
+const copy = regl({
+  vert: `
+    attribute vec4 pos; 
+
+    uniform mat4 transform_matrix;
+
+    void main () {
+      gl_Position = transform_matrix * pos;
+    } 
+  `,
+  frag: `
+    precision mediump float; 
+
+    uniform sampler2D src;
+    uniform vec2 viewport;
+
+    void main () {
+      vec2 p = gl_FragCoord.xy / viewport;
+
+      gl_FragColor = texture2D(src, p);
+    }
+  `,
+  attributes: {
+    pos: FULL_SCREEN_QUAD
+  },
+  count: 6,
+  uniforms: {
+    viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
+    src: regl.prop('src'),
+    transform_matrix: regl.prop('transformMatrix')
+  },
+  depth: { 
+    enable: false
+  },
+  blend: {
+    enable: false
+  },
+  framebuffer: regl.prop('dst') // TODO: do I need to do this? can use framebuffer?
 })
 
 const render = regl({
@@ -104,7 +152,7 @@ const render = regl({
       vec4 c = vec4(0, 0, 0, 1);
       vec4 color = vec4(1, 0, 0, 1);
       float d = texture2D(from, p).a;
-      float d_out = pow(clamp(d, 0., 1.), .1);
+      float d_out = pow(clamp(d, 0., 1.), .01);
 
       c = mix(color, c, d_out);
 
@@ -114,32 +162,37 @@ const render = regl({
   attributes: {
     pos: BIG_TRIANGLE,
   },
+  count: 3,
   uniforms: {
     viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
-    from: regl.prop('from')
+    from: accumulator
   },
-  count: 3,
   depth: {
     enable: false 
   }
 })
 
 const objects = []
-const COUNT = 5
+const COUNT = 100
 
 for ( var i = -COUNT; i <= COUNT; i++ ) {
-  objects.push({ center: [ i / COUNT, 0 ], radius: .15 })
+  objects.push({ center: [ i / COUNT, 0 ], radius: .03 })
 }
 
 const evalProps = {
-  from: null,
+  from: accumulator,
   to: null,
   center: [ 0, 0 ],
   radius: 0,
   transformMatrix: mat4.create()
 }
+const copyProps = {
+  src: null,
+  dst: accumulator,
+  transformMatrix: mat4.create(),
+}
 const renderProps = {
-  from: null
+  from: accumulator
 }
 const clearProps = {
   color: [ 0, 0, 0, 1000 ],
@@ -149,32 +202,25 @@ const clearProps = {
 function update ({ tick, time }) {
   var matrix = evalProps.transformMatrix
   var center = evalProps.center
-  var to = framebuffers[0]
-  var from = framebuffers[1]
-  var tmp
+  var src
 
   for ( var i = 0, object; i < objects.length; i++) {
-    tmp = to
-    to = from
-    from = tmp
+    src = targets[i % targets.length]
     object = objects[i]
-    evalProps.from = from
-    evalProps.to = to
     center[0] = object.center[0]
-    center[1] = object.center[1] + sin(time * i / 10)
+    center[1] = object.center[1] + sin(time * i / 40)
     evalProps.radius = object.radius
+    evalProps.to = src 
     mat4.identity(matrix)
     mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
-    mat4.scale(matrix, matrix, [ object.radius * 1.5, object.radius * 1.5, 1 ])  
+    mat4.scale(matrix, matrix, [ object.radius * 6, object.radius * 6, 1 ])  
     sdfSphere(evalProps)
-    renderProps.from = to
-    render(renderProps)
+    copyProps.src = src
+    mat4.copy(copyProps.transformMatrix, matrix)
+    copy(copyProps)
   }
-  // renderProps.from = to
-  // render(renderProps)
-  clearProps.framebuffer = to
-  regl.clear(clearProps)
-  clearProps.framebuffer = from
+  render(renderProps)
+  clearProps.framebuffer = accumulator 
   regl.clear(clearProps)
 }
 
