@@ -18,7 +18,7 @@ const FULL_SCREEN_QUAD = regl.buffer([
   1, -1, 0, 1
 ])
 
-const side = 8
+const side = 10
 const framebuffers = [ null, null ].map(function () {
   return regl.framebuffer({
     width: pow(2, side),
@@ -118,14 +118,17 @@ const render = regl({
     viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
     from: regl.prop('from')
   },
-  count: 3
+  count: 3,
+  depth: {
+    enable: false 
+  }
 })
 
 const objects = []
-const COUNT = 10
+const COUNT = 5
 
 for ( var i = -COUNT; i <= COUNT; i++ ) {
-  objects.push({ center: [ sin(i), cos(i) ], radius: .05 })
+  objects.push({ center: [ i / COUNT, 0 ], radius: .15 })
 }
 
 const evalProps = {
@@ -158,15 +161,17 @@ function update ({ tick, time }) {
     evalProps.from = from
     evalProps.to = to
     center[0] = object.center[0]
-    center[1] = object.center[1] + sin(time * i / 100) * -object.center[1]
+    center[1] = object.center[1] + sin(time * i / 10)
     evalProps.radius = object.radius
     mat4.identity(matrix)
     mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
-    mat4.scale(matrix, matrix, [ object.radius * 1.2, object.radius * 1.2, 1 ])  
+    mat4.scale(matrix, matrix, [ object.radius * 1.5, object.radius * 1.5, 1 ])  
     sdfSphere(evalProps)
+    renderProps.from = to
+    render(renderProps)
   }
-  renderProps.from = to
-  render(renderProps)
+  // renderProps.from = to
+  // render(renderProps)
   clearProps.framebuffer = to
   regl.clear(clearProps)
   clearProps.framebuffer = from
