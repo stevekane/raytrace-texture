@@ -18,19 +18,19 @@ const FULL_SCREEN_QUAD = regl.buffer([
   1, -1, 0, 1
 ])
 
-const side = 10
+const FRAMEBUFFER_POWER = 10
 const TARGET_COUNT = 32
 const accumulator = regl.framebuffer({
-  width: pow(2, side),
-  height: pow(2, side),
+  width: pow(2, FRAMEBUFFER_POWER),
+  height: pow(2, FRAMEBUFFER_POWER),
   colorType: 'float'
 })
 const targets = []
 
 for ( var i = 0; i < TARGET_COUNT; i++ ) {
   targets.push(regl.framebuffer({
-    width: pow(2, side),
-    height: pow(2, side),
+    width: pow(2, FRAMEBUFFER_POWER),
+    height: pow(2, FRAMEBUFFER_POWER),
     colorType: 'float'
   }))
 }
