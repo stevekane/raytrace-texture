@@ -1,7 +1,7 @@
 const regl = require('regl')({ extensions: [ 'OES_texture_float' ] })
 const mat4 = require('gl-mat4')
+const MouseSignal = require('mouse-signal')
 const { pow, abs, sin, cos, random } = Math
-const rand = _ => (Math.random() > 0.5 ? 1 : -1) * Math.random()
 
 const BIG_TRIANGLE = regl.buffer([ 
   -4, -4, 0, 1,
@@ -18,8 +18,8 @@ const FULL_SCREEN_QUAD = regl.buffer([
   1, -1, 0, 1
 ])
 
-const FRAMEBUFFER_POWER = 10
-const TARGET_COUNT = 32
+const FRAMEBUFFER_POWER = 8
+const TARGET_COUNT = 128
 const accumulator = regl.framebuffer({
   width: pow(2, FRAMEBUFFER_POWER),
   height: pow(2, FRAMEBUFFER_POWER),
@@ -130,7 +130,7 @@ const copy = regl({
   blend: {
     enable: false
   },
-  framebuffer: regl.prop('dst') // TODO: do I need to do this? can use framebuffer?
+  framebuffer: regl.prop('dst')
 })
 
 const render = regl({
@@ -175,9 +175,9 @@ const render = regl({
 const objects = []
 const COUNT = 100
 
-for ( var i = -COUNT; i <= COUNT; i++ ) {
-  objects.push({ center: [ i / COUNT, 0 ], radius: .03 })
-}
+// for ( var i = -COUNT; i <= COUNT; i++ ) {
+//   objects.push({ center: [ i / COUNT, 0 ], radius: .03 })
+// }
 
 const evalProps = {
   from: accumulator,
@@ -198,17 +198,31 @@ const clearProps = {
   color: [ 0, 0, 0, 1000 ],
   framebuffer: null
 }
+const ms = new MouseSignal(document.body)
+
+for ( var key in ms.eventListeners ) {
+  document.body.addEventListener(key, ms.eventListeners[key])
+}
 
 function update ({ tick, time }) {
   var matrix = evalProps.transformMatrix
   var center = evalProps.center
   var src
 
+  MouseSignal.update(1, ms)
+  if ( ms.left.mode.DOWN ) {
+    const x = 2 * ms.current[0] / regl._gl.canvas.clientWidth - 1
+    const y = 2 * ( 1 - ms.current[1] / regl._gl.canvas.clientHeight ) - 1
+
+    objects.push({ center: [ x, y ], radius: .01 })
+  }
+  if ( ms.left.mode.JUST_UP ) console.log(objects.length)
+
   for ( var i = 0, object; i < objects.length; i++) {
     src = targets[i % targets.length]
     object = objects[i]
     center[0] = object.center[0]
-    center[1] = object.center[1] + sin(time * i / 40)
+    center[1] = object.center[1]
     evalProps.radius = object.radius
     evalProps.to = src 
     mat4.identity(matrix)
