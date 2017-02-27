@@ -1,8 +1,9 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 const regl = require('regl')({ extensions: [ 'OES_texture_float' ] })
 const mat4 = require('gl-mat4')
+const MouseSignal = require('mouse-signal')
 const { pow, abs, sin, cos, random } = Math
-const rand = _ => (Math.random() > 0.5 ? 1 : -1) * Math.random()
+const rand = _ => random() * 2 - 1
 
 const BIG_TRIANGLE = regl.buffer([ 
   -4, -4, 0, 1,
@@ -19,19 +20,19 @@ const FULL_SCREEN_QUAD = regl.buffer([
   1, -1, 0, 1
 ])
 
-const side = 10
-const TARGET_COUNT = 32
+const FRAMEBUFFER_POWER = 9
+const TARGET_COUNT = 128
 const accumulator = regl.framebuffer({
-  width: pow(2, side),
-  height: pow(2, side),
+  width: pow(2, FRAMEBUFFER_POWER),
+  height: pow(2, FRAMEBUFFER_POWER),
   colorType: 'float'
 })
 const targets = []
 
 for ( var i = 0; i < TARGET_COUNT; i++ ) {
   targets.push(regl.framebuffer({
-    width: pow(2, side),
-    height: pow(2, side),
+    width: pow(2, FRAMEBUFFER_POWER),
+    height: pow(2, FRAMEBUFFER_POWER),
     colorType: 'float'
   }))
 }
@@ -131,7 +132,7 @@ const copy = regl({
   blend: {
     enable: false
   },
-  framebuffer: regl.prop('dst') // TODO: do I need to do this? can use framebuffer?
+  framebuffer: regl.prop('dst')
 })
 
 const render = regl({
@@ -174,10 +175,10 @@ const render = regl({
 })
 
 const objects = []
-const COUNT = 100
+const COUNT = 1000
 
-for ( var i = -COUNT; i <= COUNT; i++ ) {
-  objects.push({ center: [ i / COUNT, 0 ], radius: .03 })
+for ( var i = 0; i <= COUNT; i++ ) {
+  objects.push({ center: [ rand(), rand() ], radius: 10 / COUNT })
 }
 
 const evalProps = {
@@ -199,22 +200,36 @@ const clearProps = {
   color: [ 0, 0, 0, 1000 ],
   framebuffer: null
 }
+const ms = new MouseSignal(document.body)
+
+for ( var key in ms.eventListeners ) {
+  document.body.addEventListener(key, ms.eventListeners[key])
+}
 
 function update ({ tick, time }) {
   var matrix = evalProps.transformMatrix
   var center = evalProps.center
   var src
 
+  MouseSignal.update(1, ms)
+  if ( ms.left.mode.DOWN ) {
+    const { clientWidth, clientHeight } = regl._gl.canvas
+    const x = 2 * ms.current[0] / clientWidth - 1
+    const y = 2 * ( 1 - ms.current[1] / clientHeight ) - 1
+
+    objects.push({ center: [ x, y ], radius: .01 })
+  }
+
   for ( var i = 0, object; i < objects.length; i++) {
     src = targets[i % targets.length]
     object = objects[i]
     center[0] = object.center[0]
-    center[1] = object.center[1] + sin(time * i / 40)
+    center[1] = object.center[1]
     evalProps.radius = object.radius
     evalProps.to = src 
     mat4.identity(matrix)
     mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
-    mat4.scale(matrix, matrix, [ object.radius * 6, object.radius * 6, 1 ])  
+    mat4.scale(matrix, matrix, [ object.radius * 10, object.radius * 10, 1 ])  
     sdfSphere(evalProps)
     copyProps.src = src
     mat4.copy(copyProps.transformMatrix, matrix)
@@ -227,7 +242,7 @@ function update ({ tick, time }) {
 
 regl.frame(update)
 
-},{"gl-mat4":11,"regl":26}],2:[function(require,module,exports){
+},{"gl-mat4":11,"mouse-signal":26,"regl":28}],2:[function(require,module,exports){
 module.exports = adjoint;
 
 /**
@@ -1211,6 +1226,131 @@ function transpose(out, a) {
     return out;
 };
 },{}],26:[function(require,module,exports){
+module.exports = require('./src')
+
+},{"./src":27}],27:[function(require,module,exports){
+var Enum = require('tiny-enum')
+var BUTTON_MODE = new Enum('UP', 'JUST_DOWN', 'DOWN', 'JUST_UP')
+
+module.exports = MouseSignal
+
+function ButtonState () {
+  this.mode = BUTTON_MODE.UP
+  this.nextMode = BUTTON_MODE.UP
+  this.down = [ 0, 0 ]
+  this.up = [ 0, 0 ]
+  this.downDuration = 0
+}
+
+function MouseSignal () {
+  var self = this
+
+  function mouseenter (e) {
+    self.active = true
+  }
+
+  function mouseleave (e) {
+    self.active = false
+  }
+
+  function blur () {
+    self.active = false
+  }
+
+  function focus () {
+    self.active = true 
+  }
+
+  function mousemove (e) {
+    var bcr = this.getBoundingClientRect()
+    var x = e.clientX - bcr.left
+    var y = e.clientY - bcr.top
+
+    self.active = true
+    self.current[0] = x
+    self.current[1] = y
+  }
+
+  function mousedown (e) {
+    var bcr = this.getBoundingClientRect()
+    var x = e.clientX - bcr.left
+    var y = e.clientY - bcr.top
+
+    self.active = true
+    self.left.nextMode = BUTTON_MODE.DOWN
+    self.left.down[0] = x
+    self.left.down[1] = y
+  }
+
+  function mouseup (e) {
+    var bcr = this.getBoundingClientRect()
+    var x = e.clientX - bcr.left
+    var y = e.clientY - bcr.top
+
+    self.active = true
+    self.left.up[0] = x
+    self.left.up[1] = y
+    self.left.nextMode = BUTTON_MODE.UP
+  }
+
+  this.active = false
+  this.left = new ButtonState
+  this.previous = [ 0, 0 ]
+  this.current = [ 0, 0 ]
+  this.eventListeners = {
+    mousemove: mousemove,
+    mousedown: mousedown,
+    mouseup: mouseup,
+    mouseenter: mouseenter,
+    mouseleave: mouseleave,
+    blur: blur,
+    focus: focus
+  }
+}
+
+MouseSignal.ButtonState = ButtonState
+
+MouseSignal.BUTTON_MODE = BUTTON_MODE
+
+MouseSignal.update = function update (dT, ms) {
+  ms.previous[0] = ms.current[0]
+  ms.previous[1] = ms.current[1]
+
+  if      (!ms.active)                                  ms.left.mode = BUTTON_MODE.UP
+  else if (ms.left.mode.JUST_DOWN)                      ms.left.mode = BUTTON_MODE.DOWN
+  else if (ms.left.mode.JUST_UP)                        ms.left.mode = BUTTON_MODE.UP
+  else if (ms.left.nextMode.DOWN && !ms.left.mode.DOWN) ms.left.mode = BUTTON_MODE.JUST_DOWN
+  else if (ms.left.nextMode.UP && !ms.left.mode.UP)     ms.left.mode = BUTTON_MODE.JUST_UP
+  else                                                  ms.left.mode = ms.left.nextMode
+
+  if   (!ms.active || ms.left.mode.UP || ms.left.mode.JUST_DOWN) ms.left.downDuration = 0
+  else                                                           ms.left.downDuration += dT
+
+  return ms
+}
+
+MouseSignal.prototype.toString = function () {
+  var isActive = this.active
+  var prev = 'x: ' + this.previous[0] + ' y: ' + this.previous[1]
+  var current = 'x: ' + this.current[0] + ' y: ' + this.current[1]
+  var leftBtnNextMode = this.left.nextMode.toString() 
+  var leftBtnMode = this.left.mode.toString() 
+  var leftdn = 'x: ' + this.left.down[0] + ' y: ' + this.left.down[1]
+  var leftup = 'x: ' + this.left.up[0] + ' y: ' + this.left.up[1]
+  var leftduration = this.left.downDuration 
+
+  return 'ACTIVE: ' + isActive +
+         '\nPREVIOUS: ' + prev +
+         '\nCURRENT: ' + current +
+         '\nLEFT-BUTTON' +
+         '\n-- NEXT_MODE: ' + leftBtnNextMode +
+         '\n-- THIS_MODE: ' + leftBtnMode +
+         '\n-- HELD_FOR(ms): ' + leftduration +
+         '\n-- DOWN: ' + leftdn +
+         '\n-- UP: ' + leftup
+}
+
+},{"tiny-enum":29}],28:[function(require,module,exports){
 (function (global, factory) {
 	typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
 	typeof define === 'function' && define.amd ? define(factory) :
@@ -10714,5 +10854,30 @@ return wrapREGL;
 
 })));
 
+
+},{}],29:[function(require,module,exports){
+module.exports = Enum
+
+var freeze = Object.freeze || function () {}
+
+function Enum () {
+  var args = Array.prototype.slice.call(arguments, 0)
+
+  for (var i = 0, k; i < args.length; i++) {
+    k = {}
+    this[args[i]] = k
+
+    for (var j = 0; j < args.length; j++) defProp(k, args[j], args[i])
+    freeze(k)
+  }
+  freeze(this)
+}
+
+function defProp (target, arg1, arg2) {
+  target.toString = function () { return arg2 }
+  Object.defineProperty(target, arg1, {
+    value: arg1 === arg2
+  })
+}
 
 },{}]},{},[1]);
