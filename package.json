@@ -11,9 +11,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "big-triangle": "^1.0.0",
+    "full-screen-quad": "^1.0.0",
     "gl-mat4": "^1.1.4",
     "gl-quat": "^1.0.0",
     "gl-vec3": "^1.0.3",
+    "keyboard-signal": "^1.1.1",
     "mouse-signal": "^2.1.0",
     "react": "^15.4.2",
     "react-dom": "^15.4.2",

@@ -1,24 +1,17 @@
 const regl = require('regl')({ extensions: [ 'OES_texture_float' ] })
 const mat4 = require('gl-mat4')
 const MouseSignal = require('mouse-signal')
+const KeyboardSignal = require('keyboard-signal')
+const SDFCommand = require('./sdf-command')
+const BigTrinagle = require('big-triangle')
+const FullScreenQuad = require('full-screen-quad')
+const { sdf_union_round, sdf_difference_round } = require('./sdf-operations')
+const { sdf_circle } = require('./sdf-primitives')
 const { pow, abs, sin, cos, random } = Math
 const rand = _ => random() * 2 - 1
 
-const BIG_TRIANGLE = regl.buffer([ 
-  -4, -4, 0, 1,
-  0, 4, 0, 1,
-  4, -4, 0, 1
-])
-
-const FULL_SCREEN_QUAD = regl.buffer([
-  1,  1, 0, 1,
-  -1, 1, 0, 1,
-  1, -1, 0, 1,
-  -1, 1, 0, 1,
-  -1, -1, 0, 1,
-  1, -1, 0, 1
-])
-
+const BIG_TRIANGLE = regl.buffer(new BigTrinagle(4))
+const FULL_SCREEN_QUAD = regl.buffer(new FullScreenQuad(4))
 const FRAMEBUFFER_POWER = 9
 const TARGET_COUNT = 128
 const accumulator = regl.framebuffer({
@@ -36,62 +29,19 @@ for ( var i = 0; i < TARGET_COUNT; i++ ) {
   }))
 }
 
-const sdfSphere = regl({
-  vert: `
-    attribute vec4 pos;
-
-    uniform mat4 transform_matrix;
-
-    void main () {
-      gl_Position = transform_matrix * pos;
-    } 
-  `,
-  frag: `
-    precision mediump float;
-
-    uniform sampler2D from;
-    uniform vec2 viewport;
-    uniform vec2 center;
-    uniform float radius;
-
-    float sdf_circle ( vec2 p, float r ) {
-      return length(p) - r; 
-    }
-
-    float sdf_union_round ( float a, float b, float r ) {
-      vec2 u = max(vec2(r - a,r - b), vec2(0));
-
-      return max(r, min (a, b)) - length(u);
-    }
-
-    void main () {
-      vec2 p_texture = gl_FragCoord.xy / viewport;
-      vec2 p_screen = 2. * p_texture - 1.;
-      float f = texture2D(from, p_texture).a;
-      float t = sdf_circle(p_screen - center, radius);
-      float d = sdf_union_round(f, t, 0.05);
-
-      gl_FragColor = vec4(0, 0, 0, d);
-    }
-  `,
-  attributes: {
-    pos: FULL_SCREEN_QUAD
-  },
-  count: 6,
-  uniforms: {
-    viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
-    from: regl.prop('from'),
-    radius: regl.prop('radius'),
-    center: regl.prop('center'),
-    transform_matrix: regl.prop('transformMatrix')
-  },
-  depth: {
-    enable: false 
-  },
-  blend: {
-    enable: false
-  },
-  framebuffer: regl.prop('to')
+const addSDFSphere = SDFCommand(regl, {
+  vertexBuffer: FULL_SCREEN_QUAD,
+  sdfSrc: sdf_circle,
+  opSrc: sdf_union_round,
+  sdfCall: 'sdf_circle(p_screen - center, radius)',
+  opCall: 'sdf_union_round(f, t, 0.04)'
+})
+const subtractSDFSphere = SDFCommand(regl, {
+  vertexBuffer: FULL_SCREEN_QUAD,
+  sdfSrc: sdf_circle,
+  opSrc: sdf_difference_round,
+  sdfCall: 'sdf_circle(p_screen - center, radius)',
+  opCall: 'sdf_difference_round(f, t, 0.04)'
 })
 
 const copy = regl({
@@ -176,9 +126,15 @@ const render = regl({
 const objects = []
 const COUNT = 1000
 
-for ( var i = 0; i <= COUNT; i++ ) {
-  objects.push({ center: [ rand(), rand() ], radius: 10 / COUNT })
-}
+// for ( var i = 0, add; i <= COUNT; i++ ) {
+//   add = random() < 0.5
+//   objects.push({ 
+//     position: [ rand(), rand() ], 
+//     velocity: !add ? [ rand() / 100, rand() / 100 ] : [ 0, 0 ],
+//     radius: 20 / COUNT * random(),
+//     add: add
+//   })
+// }
 
 const evalProps = {
   from: accumulator,
@@ -200,9 +156,13 @@ const clearProps = {
   framebuffer: null
 }
 const ms = new MouseSignal(document.body)
+const kbs = new KeyboardSignal(document.body)
 
 for ( var key in ms.eventListeners ) {
   document.body.addEventListener(key, ms.eventListeners[key])
+}
+for ( var key in kbs.eventListeners ) {
+  document.body.addEventListener(key, kbs.eventListeners[key])
 }
 
 function update ({ tick, time }) {
@@ -211,25 +171,33 @@ function update ({ tick, time }) {
   var src
 
   MouseSignal.update(1, ms)
+  KeyboardSignal.update(1, kbs)
   if ( ms.left.mode.DOWN ) {
     const { clientWidth, clientHeight } = regl._gl.canvas
     const x = 2 * ms.current[0] / clientWidth - 1
     const y = 2 * ( 1 - ms.current[1] / clientHeight ) - 1
 
-    objects.push({ center: [ x, y ], radius: .01 })
+    objects.push({ 
+      position: [ x, y ], 
+      velocity: [ 0, 0 ],
+      radius: .01,
+      add: !kbs.SHIFT.mode.DOWN
+    })
   }
 
   for ( var i = 0, object; i < objects.length; i++) {
     src = targets[i % targets.length]
     object = objects[i]
-    center[0] = object.center[0]
-    center[1] = object.center[1]
+    object.position[0] += object.velocity[0]
+    object.position[1] += object.velocity[1]
+    center[0] = object.position[0]
+    center[1] = object.position[1]
     evalProps.radius = object.radius
     evalProps.to = src 
     mat4.identity(matrix)
     mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
     mat4.scale(matrix, matrix, [ object.radius * 10, object.radius * 10, 1 ])  
-    sdfSphere(evalProps)
+    object.add ? addSDFSphere(evalProps) : subtractSDFSphere(evalProps)
     copyProps.src = src
     mat4.copy(copyProps.transformMatrix, matrix)
     copy(copyProps)
