@@ -2,6 +2,7 @@ const regl = require('regl')({ extensions: [ 'OES_texture_float' ] })
 const mat4 = require('gl-mat4')
 const MouseSignal = require('mouse-signal')
 const { pow, abs, sin, cos, random } = Math
+const rand = _ => random() * 2 - 1
 
 const BIG_TRIANGLE = regl.buffer([ 
   -4, -4, 0, 1,
@@ -18,7 +19,7 @@ const FULL_SCREEN_QUAD = regl.buffer([
   1, -1, 0, 1
 ])
 
-const FRAMEBUFFER_POWER = 8
+const FRAMEBUFFER_POWER = 9
 const TARGET_COUNT = 128
 const accumulator = regl.framebuffer({
   width: pow(2, FRAMEBUFFER_POWER),
@@ -173,11 +174,11 @@ const render = regl({
 })
 
 const objects = []
-const COUNT = 100
+const COUNT = 1000
 
-// for ( var i = -COUNT; i <= COUNT; i++ ) {
-//   objects.push({ center: [ i / COUNT, 0 ], radius: .03 })
-// }
+for ( var i = 0; i <= COUNT; i++ ) {
+  objects.push({ center: [ rand(), rand() ], radius: 10 / COUNT })
+}
 
 const evalProps = {
   from: accumulator,
@@ -211,12 +212,12 @@ function update ({ tick, time }) {
 
   MouseSignal.update(1, ms)
   if ( ms.left.mode.DOWN ) {
-    const x = 2 * ms.current[0] / regl._gl.canvas.clientWidth - 1
-    const y = 2 * ( 1 - ms.current[1] / regl._gl.canvas.clientHeight ) - 1
+    const { clientWidth, clientHeight } = regl._gl.canvas
+    const x = 2 * ms.current[0] / clientWidth - 1
+    const y = 2 * ( 1 - ms.current[1] / clientHeight ) - 1
 
     objects.push({ center: [ x, y ], radius: .01 })
   }
-  if ( ms.left.mode.JUST_UP ) console.log(objects.length)
 
   for ( var i = 0, object; i < objects.length; i++) {
     src = targets[i % targets.length]
@@ -227,7 +228,7 @@ function update ({ tick, time }) {
     evalProps.to = src 
     mat4.identity(matrix)
     mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
-    mat4.scale(matrix, matrix, [ object.radius * 6, object.radius * 6, 1 ])  
+    mat4.scale(matrix, matrix, [ object.radius * 10, object.radius * 10, 1 ])  
     sdfSphere(evalProps)
     copyProps.src = src
     mat4.copy(copyProps.transformMatrix, matrix)
