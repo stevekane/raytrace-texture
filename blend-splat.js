@@ -1,4 +1,6 @@
-const regl = require('regl')({ extensions: [ 'OES_texture_float' ] })
+const regl = require('regl')({ 
+  extensions: [ 'OES_texture_float', 'WEBGL_draw_buffers' ] 
+})
 const mat4 = require('gl-mat4')
 const MouseSignal = require('mouse-signal')
 const KeyboardSignal = require('keyboard-signal')
@@ -10,22 +12,50 @@ const { sdf_circle } = require('./sdf-primitives')
 const { pow, abs, sin, cos, random } = Math
 const rand = _ => random() * 2 - 1
 
+/*
+Color each sdf -- each SDF is spawned with a "color" paramater ( rgb only for now )
+Color the field ?  
+  Color would itself be a block primitive.  This probably would not
+  compose well for per-sdf animation but would be nice if the field of SDFs were fixed?
+Color SDFs AFTER they have been added?  Presumably this would need to uniformly modify 
+the affected SDFs entirely?
+*/
+
 const BIG_TRIANGLE = regl.buffer(new BigTrinagle(4))
 const FULL_SCREEN_QUAD = regl.buffer(new FullScreenQuad(4))
 const FRAMEBUFFER_POWER = 9
 const TARGET_COUNT = 128
+const width = height = pow(2, FRAMEBUFFER_POWER)
 const accumulator = regl.framebuffer({
-  width: pow(2, FRAMEBUFFER_POWER),
-  height: pow(2, FRAMEBUFFER_POWER),
-  colorType: 'float'
+  colors: [
+    regl.texture({
+      width,
+      height,
+      type: 'float' 
+    }),
+    regl.texture({
+      width,
+      height,
+      type: 'float'
+    })
+  ]
 })
 const targets = []
 
 for ( var i = 0; i < TARGET_COUNT; i++ ) {
   targets.push(regl.framebuffer({
-    width: pow(2, FRAMEBUFFER_POWER),
-    height: pow(2, FRAMEBUFFER_POWER),
-    colorType: 'float'
+    colors: [
+      regl.texture({
+        width,
+        height,
+        colorType: 'float'
+      }),
+      regl.texture({
+        width,
+        height,
+        colorType: 'float'
+      })
+    ]
   }))
 }
 
@@ -55,15 +85,18 @@ const copy = regl({
     } 
   `,
   frag: `
+    #extension GL_EXT_draw_buffers : require
+
     precision mediump float; 
 
-    uniform sampler2D src;
+    uniform sampler2D attachments[2];
     uniform vec2 viewport;
 
     void main () {
       vec2 p = gl_FragCoord.xy / viewport;
 
-      gl_FragColor = texture2D(src, p);
+      gl_FragData[0] = texture2D(attachments[0], p);
+      gl_FragData[1] = texture2D(attachments[1], p);
     }
   `,
   attributes: {
@@ -72,7 +105,7 @@ const copy = regl({
   count: 6,
   uniforms: {
     viewport: ({ viewportWidth: w, viewportHeight: h }) => [ w, h ],
-    src: regl.prop('src'),
+    attachments: regl.prop('attachments'),
     transform_matrix: regl.prop('transformMatrix')
   },
   depth: { 
@@ -144,7 +177,7 @@ const evalProps = {
   transformMatrix: mat4.create()
 }
 const copyProps = {
-  src: null,
+  attachments: [ null, null ],
   dst: accumulator,
   transformMatrix: mat4.create(),
 }
@@ -198,7 +231,8 @@ function update ({ tick, time }) {
     mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
     mat4.scale(matrix, matrix, [ object.radius * 10, object.radius * 10, 1 ])  
     object.add ? addSDFSphere(evalProps) : subtractSDFSphere(evalProps)
-    copyProps.src = src
+    copyProps.attachments[0] = src.color[0]
+    copyProps.attachments[1] = src.color[1]
     mat4.copy(copyProps.transformMatrix, matrix)
     copy(copyProps)
   }
