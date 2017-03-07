@@ -23,6 +23,21 @@ module.exports = function (regl, { vertexBuffer, sdfSrc, sdfCall, opSrc, opCall 
       ${ sdfSrc }
       ${ opSrc }
 
+      /*
+      Two fields are written for each SDF.  
+      
+      The first field is the distance for the field at the given point.  
+      This is stored in the alpha channel of FragData[0].
+
+      The second field is the blended color value for the field at a given
+      point.  This value is calculated by taking the color from the field 
+      currently and blending it together with the color from the new SDF.
+
+      The color for an SDF is given by 
+        a = d < thickness ? thickness : abs(thickness / d^2)
+        c = smoothstep(color.rgb, a)
+      */
+
       vec4 blend ( vec4 c1, vec4 c2 ) {
         vec4 c = c1 * c1.a + c2 * ( 1. - c1.a );
 

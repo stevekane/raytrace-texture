@@ -9,7 +9,7 @@ const BigTriangle = require('big-triangle')
 const FullScreenQuad = require('full-screen-quad')
 const { sdf_union_round, sdf_difference_round } = require('./sdf-operations')
 const { sdf_circle } = require('./sdf-primitives')
-const { pow, abs, sin, cos, random } = Math
+const { pow, abs, sin, cos, random, PI } = Math
 const rand = _ => random() * 2 - 1
 
 const BIG_TRIANGLE = regl.buffer(new BigTriangle(4))
@@ -145,14 +145,33 @@ const render = regl({
     uniform sampler2D from[2];
     uniform vec2 viewport;
 
+    const float GAMMA = 2.2;
+    const vec4 GAMMA_VECTOR = vec4(vec3(1. / GAMMA), 1.0);
+    const vec4 FILL_COLOR = vec4(1, 0, 0, 1);
+    const vec4 BORDER_COLOR = vec4(.8, .8, .8, 1);
+
+    float fill ( float dist ) {
+      return clamp(-dist, 0.0, 1.0);
+    }
+
+    float border ( float dist, float width ) {
+      float alpha1 = clamp(dist + width, 0.0, 1.0);
+      float alpha2 = clamp(dist, 0.0, 1.0);
+
+      return alpha1 - alpha2;
+    }
+
     void main () {
       vec2 p = gl_FragCoord.xy / viewport;
-      vec4 color = texture2D(from[1], p);
+      // vec4 color = texture2D(from[1], p);
       float d = texture2D(from[0], p).a;
+      vec4 color = vec4(.5, .5, .5, 1.);
 
-      gl_FragColor = d <= 0.
-        ? vec4(color.rgb, 1.)
-        : vec4(0, 0, 0, 0);
+      color = mix(color, FILL_COLOR, fill(d));
+      color = mix(color, BORDER_COLOR, border(d, 1.5));
+      color = pow(color, GAMMA_VECTOR);
+
+      gl_FragColor = color;
     } 
   `,
   attributes: {
@@ -164,20 +183,19 @@ const render = regl({
     'from[0]': regl.prop('from.0'),
     'from[1]': regl.prop('from.1')
   },
-  depth: { enable: false }
+  depth: { 
+    enable: false 
+  }
 })
 
 const objects = []
-const COUNT = 40
+const COUNT = 1
 
-for ( var i = -COUNT; i <= COUNT; i++ ) {
+for ( var i = 0; i < COUNT; i++ ) {
   objects.push({ 
-    position: [ i / COUNT, 0 ], 
-    // velocity: [ rand() / 100, rand() / 100 ],
-    velocity: [ 0, 0 ],
-    color: [ random(), random(), random() ],
-    radius: rand() / 10,
-    add: true
+    position: [ sin(i * 2 * PI / COUNT) / 2, cos(i * 2 * PI / COUNT) / 2 ], 
+    color: [ 1, 0, 1 ],
+    radius:  .1
   })
 }
 
@@ -199,7 +217,7 @@ const renderProps = {
 }
 const clearProps = {
   colors: [
-    [ 0, 0, 0, 1 ],
+    [ 0, 0, 0, 1024 ],
     [ 0, 0, 0, 0 ]
   ],
   framebuffer: accumulator
@@ -228,19 +246,20 @@ function update ({ tick, time }) {
 
     objects.push({ 
       position: [ x, y ], 
-      velocity: [ rand() / 100, rand() / 100 ],
       radius: .01,
       color: [ rand(), rand(), rand() ],
-      add: !kbs.SHIFT.mode.DOWN
     })
   }
 
-  // objects[1].position[0] = sin(time)
+  if ( kbs.C.mode.JUST_UP ) {
+    regl({ framebuffer: accumulator })(_ => {
+      console.log(regl.read()) 
+    })
+  }
+
   for ( var i = 0, object; i < objects.length; i++) {
     src = targets[i % targets.length]
     object = objects[i]
-    object.position[0] += object.velocity[0]
-    object.position[1] += object.velocity[1]
     center[0] = object.position[0]
     center[1] = object.position[1]
     evalProps.radius = object.radius
@@ -250,7 +269,7 @@ function update ({ tick, time }) {
     evalProps.to = src 
     mat4.identity(matrix)
     mat4.translate(matrix, matrix, [ center[0], center[1], 0 ])
-    // mat4.scale(matrix, matrix, [ object.radius * 3, object.radius * 3, 1 ])  
+    mat4.scale(matrix, matrix, [ object.radius + .2, object.radius + .2, 1 ])  
     addSDFSphere(evalProps)
     copyProps.attachments = src.color
     copyProps.transformMatrix = matrix
